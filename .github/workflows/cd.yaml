@@ -30,6 +30,7 @@ jobs:
         run: |
           REF="${GITHUB_REF#refs/heads/}"
           if [[ "$REF" == "master" ]]; then NS="dev"; ENV="dev";
+          elif [[ "$REF" == "main" ]]; then NS="dev"; ENV="dev";
           elif [[ "$REF" == pre-release/* ]]; then NS="pre-release"; ENV="pre";
           elif [[ "$REF" == release/* ]]; then NS="release"; ENV="prod";
           else echo "Unsupported branch $REF"; exit 1; fi
