@@ -1,0 +1,47 @@
+cd .ergomake
+docker compose up --build -d 
+
+# Start cluster and enable ingress controller
+minikube start
+minikube addons enable ingress
+
+# Build images inside Minikube's Docker
+eval "$(minikube docker-env)"
+docker build -t backend:latest ./backend
+docker build -t frontend:latest ./frontend
+
+# Apply manifests
+kubectl apply -f .ergomake/k8s-manifests.yaml
+
+# Get the IP and open the app
+minikube ip
+# Visit: http://<minikube-ip>/
+
+kubectl get pods -w
+
+
+Option A — minikube service (simple)
+```bash
+minikube service frontend --url
+# Open the printed URL (e.g., http://127.0.0.1:46143) and keep this terminal open
+```
+
+Option B — Port-forward the Ingress controller
+```bash
+kubectl -n ingress-nginx port-forward svc/ingress-nginx-controller 8080:80
+# Then open http://localhost:8080
+# Test API: curl -s http://localhost:8080/api/tags
+```
+
+Option C — LoadBalancer + tunnel (persistent)
+```bash
+kubectl -n ingress-nginx patch svc ingress-nginx-controller -p '{"spec":{"type":"LoadBalancer"}}'
+sudo -E minikube tunnel
+kubectl -n ingress-nginx get svc ingress-nginx-controller  # note EXTERNAL-IP
+# Open http://<EXTERNAL-IP>/
+```
+
+Quick sanity checks:
+```bash
+kubectl get ingress
+kubectl get ep frontend backend
