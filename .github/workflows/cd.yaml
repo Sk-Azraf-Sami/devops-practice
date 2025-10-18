@@ -46,7 +46,7 @@ jobs:
           cache: npm
 
       - name: Install deps (root)
-        run: npm ci
+        run: npm i
 
       - name: Backend tests
         run: npm test -w backend --if-present
