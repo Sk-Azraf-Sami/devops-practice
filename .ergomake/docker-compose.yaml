@@ -1,27 +1,58 @@
-version: '3.1'
-
 services:
-  app:
+  frontend:
     build:
-      context: ..
-    environment:
-      DB_USER: exampleUserName
-      DB_PASSWORD: examplePassword
-      DB_DATABASE: exampleDB
-      DB_HOST: "db"
-      PORT: "3000"
-      JWT_KEY: "exampleSecretKey"
+      context: ../frontend
+      dockerfile: Dockerfile
     ports:
-      - "3000:3000"
+      - "4040:80"
     depends_on:
-      - db
-    
-  db:
-    image: postgres
+      - backend
+    networks:
+      - app-network
+
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
     environment:
-      POSTGRES_USER: exampleUserName
-      POSTGRES_PASSWORD: examplePassword
-      POSTGRES_DB: exampleDB
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_DATABASE: ${DB_DATABASE}
+      DB_HOST: "db"
+      PORT: "3001"
+      JWT_KEY: ${JWT_KEY}
+      NODE_ENV: ${NODE_ENV}
+    ports:
+      - "3001:3001"
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - app-network
+
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_DATABASE}
     ports:
       - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_DATABASE}"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - app-network
 
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  app-network:
+    driver: bridge
