@@ -1,20 +1,43 @@
-name: CI (PR-only)
+name: CD (dev | pre-release | release)
 
 on:
-  pull_request:
+  push:
     branches:
-      - '**'
+      - master
+      - pre-release/**
+      - release/**
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_BACKEND: ${{ github.repository }}/backend
+  IMAGE_FRONTEND: ${{ github.repository }}/frontend
+
+permissions:
+  contents: read
+  packages: write
 
 jobs:
-  test:
+  deploy:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node
+      - name: Derive environment and tag
+        id: meta
+        shell: bash
+        run: |
+          REF="${GITHUB_REF#refs/heads/}"
+          if [[ "$REF" == "master" ]]; then NS="dev"; ENV="dev";
+          elif [[ "$REF" == pre-release/* ]]; then NS="pre-release"; ENV="pre";
+          elif [[ "$REF" == release/* ]]; then NS="release"; ENV="prod";
+          else echo "Unsupported branch $REF"; exit 1; fi
+          SHORT_SHA=$(echo "${GITHUB_SHA}" | cut -c1-7)
+          echo "ns=$NS" >> $GITHUB_OUTPUT
+          echo "env=$ENV" >> $GITHUB_OUTPUT
+          echo "tag=${ENV}-${SHORT_SHA}" >> $GITHUB_OUTPUT
+
+      - name: Set up Node (for potential build/test)
         uses: actions/setup-node@v4
         with:
           node-version: 18
@@ -23,8 +46,103 @@ jobs:
       - name: Install deps (root)
         run: npm ci
 
-      - name: Test backend
+      - name: Backend tests
         run: npm test -w backend --if-present
 
-      - name: Test frontend
+      - name: Frontend tests
         run: npm test -w frontend --if-present
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build+Push backend image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_BACKEND }}:${{ steps.meta.outputs.tag }}
+          cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_BACKEND }}:cache
+          cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_BACKEND }}:cache,mode=max
+
+      - name: Build+Push frontend image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./frontend
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_FRONTEND }}:${{ steps.meta.outputs.tag }}
+          cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_FRONTEND }}:cache
+          cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_FRONTEND }}:cache,mode=max
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: v1.29.6
+
+      - name: Write kubeconfig
+        id: kube
+        shell: bash
+        run: |
+          NS="${{ steps.meta.outputs.ns }}"
+          case "$NS" in
+            dev)  CFG="${{ secrets.KUBE_CONFIG_DEV }}" ;;
+            pre-release) CFG="${{ secrets.KUBE_CONFIG_PRE }}" ;;
+            release) CFG="${{ secrets.KUBE_CONFIG_REL }}" ;;
+            *) echo "Unknown namespace $NS"; exit 1 ;;
+          esac
+          echo "$CFG" | base64 -d > $HOME/.kube/config
+          echo "kubeconfig ready for ns=$NS"
+
+      - name: Create namespace if missing
+        run: kubectl create ns ${{ steps.meta.outputs.ns }} --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Apply base manifests
+        run: kubectl -n ${{ steps.meta.outputs.ns }} apply -f .ergomake/k8s-manifests.yaml
+      - name: Set images
+        run: |
+          TAG="${{ steps.meta.outputs.tag }}"
+          NS="${{ steps.meta.outputs.ns }}"
+          kubectl -n "$NS" set image deploy/backend backend=${{ env.REGISTRY }}/${{ env.IMAGE_BACKEND }}:$TAG
+          kubectl -n "$NS" set image deploy/frontend frontend=${{ env.REGISTRY }}/${{ env.IMAGE_FRONTEND }}:$TAG
+
+      - name: Rollout status
+        run: |
+          NS="${{ steps.meta.outputs.ns }}"
+          kubectl -n "$NS" rollout status deploy/backend --timeout=120s
+          kubectl -n "$NS" rollout status deploy/frontend --timeout=120s
+          kubectl -n "$NS" rollout status deploy/postgres --timeout=180s || true
+
+      - name: Install/upgrade Prometheus+Grafana
+        run: |
+          helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+          helm repo update
+          helm upgrade --install kps prometheus-community/kube-prometheus-stack \
+            --namespace monitoring --create-namespace \
+            --set prometheus.prometheusSpec.serviceMonitorSelectorNilUsesHelmValues=false \
+            --set prometheus.prometheusSpec.serviceMonitorNamespaceSelector={}
+      - name: Apply ServiceMonitors
+        run: |
+          kubectl -n ${{ steps.meta.outputs.ns }} apply -f .ergomake/monitoring/servicemonitors.yaml
+
+      - name: Install Jaeger (APM/tracing, optional)
+        if: ${{ steps.meta.outputs.ns != 'release' }}
+        run: |
+          helm repo add jaegertracing https://jaegertracing.github.io/helm-charts
+          helm repo update
+          helm upgrade --install jaeger jaegertracing/jaeger \
+            --namespace monitoring --set provisionDataStore.cassandra=false
+
+      - name: Rollback on failure
+        if: failure()
+        run: |
+          NS="${{ steps.meta.outputs.ns }}"
+          kubectl -n "$NS" rollout undo deploy/backend || true
+          kubectl -n "$NS" rollout undo deploy/frontend || true
