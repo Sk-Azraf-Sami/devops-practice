@@ -29,6 +29,19 @@ if (process.env.NODE_ENV === "production") {
 } else {
   app.get("/", (req, res) => res.json({ status: "API is running on /api" }));
 }
+
+// Metrics (Prometheus)
+const client = require("prom-client");
+client.collectDefaultMetrics();
+app.get("/metrics", async (_req, res) => {
+  try {
+    res.set("Content-Type", client.register.contentType);
+    res.end(await client.register.metrics());
+  } catch (e) {
+    res.status(500).end(e.message);
+  }
+});
+
 app.use("/api/users", usersRoutes);
 app.use("/api/user", userRoutes);
 app.use("/api/articles", articlesRoutes);

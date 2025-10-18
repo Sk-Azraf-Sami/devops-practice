@@ -97,10 +97,34 @@ spec:
             command: ["sh","-c","pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\" -h 127.0.0.1"]
           initialDelaySeconds: 30
           periodSeconds: 30
+      
+      - name: postgres-exporter
+        image: quay.io/prometheuscommunity/postgres-exporter:v0.15.0
+        env:
+          - name: DATA_SOURCE_NAME
+            value: postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@127.0.0.1:5432/$(POSTGRES_DB)?sslmode=disable
+        ports:
+          - containerPort: 9187
+            name: metrics
+
       volumes:
       - name: postgres-storage
         persistentVolumeClaim:
           claimName: postgres-pvc
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-metrics
+spec:
+  selector:
+    app: postgres
+  ports:
+    - name: http
+      port: 9187
+      targetPort: metrics
+  type: ClusterIP
 
 ---
 apiVersion: v1
@@ -193,7 +217,8 @@ spec:
   selector:
     app: backend
   ports:
-  - port: 3001
+  - name: http
+    port: 3001
     targetPort: 3001
   type: ClusterIP
 

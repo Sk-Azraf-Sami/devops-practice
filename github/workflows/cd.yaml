@@ -1,0 +1,30 @@
+name: CI (PR-only)
+
+on:
+  pull_request:
+    branches:
+      - '**'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: npm
+
+      - name: Install deps (root)
+        run: npm ci
+
+      - name: Test backend
+        run: npm test -w backend --if-present
+
+      - name: Test frontend
+        run: npm test -w frontend --if-present
