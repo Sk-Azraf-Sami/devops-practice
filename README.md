@@ -60,7 +60,15 @@ The following command will build the production version of the app:
 ```bash
 npm start
 ```
+
 ## Deployment Instructions
+[![Docker](https://img.shields.io/badge/Docker-2496ED?logo=docker&logoColor=white&style=for-the-badge)](https://www.docker.com/)
+[![GitHub Actions](https://img.shields.io/badge/GitHub_Actions-2088FF?logo=github-actions&logoColor=white&style=for-the-badge)](https://github.com/features/actions)
+[![Kubernetes](https://img.shields.io/badge/Kubernetes-326CE5?logo=kubernetes&logoColor=white&style=for-the-badge)](https://kubernetes.io/)
+[![Helm](https://img.shields.io/badge/Helm-0F1689?logo=helm&logoColor=white&style=for-the-badge)](https://helm.sh/)
+[![Minikube](https://img.shields.io/badge/Minikube-8C92FA?logo=minikube&logoColor=white&style=for-the-badge)](https://minikube.sigs.k8s.io/docs/)
+[![Grafana](https://img.shields.io/badge/Grafana-F46800?logo=grafana&logoColor=white&style=for-the-badge)](https://grafana.com/)
+[![Prometheus](https://img.shields.io/badge/Prometheus-E6522C?logo=prometheus&logoColor=white&style=for-the-badge)](https://prometheus.io/)
 
 ### Using Docker Compose
 ```bash
